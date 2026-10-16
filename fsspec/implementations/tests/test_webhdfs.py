@@ -43,7 +43,9 @@ def webhdfs_read_server():
                 status = state.status
                 start = int(query.get("offset", [0])[0])
                 length = int(query.get("length", [len(content)])[0])
-                body = content[start : start + length] if status == 200 else b"HTTP error"
+                body = (
+                    content[start : start + length] if status == 200 else b"HTTP error"
+                )
             self.send_response(status)
             self.send_header("Content-Length", str(len(body)))
             for name, value in headers.items():
@@ -83,7 +85,9 @@ def test_read_rejects_datanode_http_error(webhdfs_read_server, status):
         fs.session.close()
 
 
-@pytest.mark.parametrize("redirect,proxy", [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize(
+    "redirect,proxy", [(False, False), (True, False), (True, True)]
+)
 def test_read_success_with_and_without_redirect(webhdfs_read_server, redirect, proxy):
     server = webhdfs_read_server
     server.state.redirect, server.state.proxy = redirect, proxy
@@ -103,7 +107,9 @@ def test_read_success_with_and_without_redirect(webhdfs_read_server, redirect, p
             stream.seek(len(server.content))
             assert stream.read(5) == b""
             assert len(server.state.requests) == before
-        assert any(path.startswith("/data?") for path in server.state.requests) == redirect
+        assert (
+            any(path.startswith("/data?") for path in server.state.requests) == redirect
+        )
     finally:
         fs.session.close()
 
