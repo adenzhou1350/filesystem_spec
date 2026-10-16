@@ -12,6 +12,8 @@ Enhancements
 
 Fixes
 
+- Preserve buffered-file cache constructor options when pickling.
+
 - Keep the HTTP link regex linear
 
 - Preserve single-source copy semantics for Paths in sync batch ops

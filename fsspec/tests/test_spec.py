@@ -1183,6 +1183,63 @@ def test_cache_not_pickled(server):
     assert f2.cache.cache == data[length:]  # Cache is populated
 
 
+@pytest.fixture(params=["async", "sync"])
+def buffered_http_filesystem(request):
+    if request.param == "async":
+        yield HTTPFileSystem
+        return
+    from fsspec.implementations.http_sync import HTTPFileSystem as SyncHTTPFileSystem
+    from fsspec.implementations.http_sync import unregister
+
+    try:
+        yield SyncHTTPFileSystem
+    finally:
+        unregister()
+
+
+@pytest.mark.parametrize(
+    "cache_type,option,value",
+    [("blockcache", "maxblocks", 2), ("bytes", "trim", False)],
+)
+def test_file_pickle_preserves_cache_options(
+    server, buffered_http_filesystem, cache_type, option, value
+):
+    fs = buffered_http_filesystem(headers={"give_length": "true", "head_ok": "true"})
+    with fs.open(
+        server.realfile,
+        block_size=4,
+        cache_type=cache_type,
+        cache_options={option: value},
+    ) as original:
+        assert getattr(original.cache, option) == value
+        assert original.read(3) == data[:3]
+        serialized = pickle.dumps(original)
+    with pickle.loads(serialized) as restored:
+        assert restored.tell() == 3
+        assert getattr(restored.cache, option) == value
+        if cache_type == "blockcache":
+            assert restored.cache.cache_info().currsize == 0
+        else:
+            assert restored.cache.cache == b""
+        assert restored.read(16) == data[3:19]
+        if cache_type == "blockcache":
+            assert restored.cache.cache_info().currsize <= value
+
+
+def test_file_pickle_after_cache_replacement(server, buffered_http_filesystem):
+    fs = buffered_http_filesystem(headers={"give_length": "true", "head_ok": "true"})
+    with fs.open(
+        server.realfile, block_size=4, cache_type="bytes", cache_options={"trim": False}
+    ) as original:
+        assert original.read() == data
+        assert original.cache.name == "all"
+        serialized = pickle.dumps(original)
+    with pickle.loads(serialized) as restored:
+        assert restored.cache.name == "all"
+        restored.seek(0)
+        assert restored.read() == data
+
+
 def test_current():
     fs = DummyTestFS()
     fs2 = DummyTestFS(arg=1)

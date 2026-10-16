@@ -2079,6 +2079,8 @@ class AbstractBufferedFile(io.IOBase):
             self.cache = caches[cache_type](
                 self.blocksize, self._fetch_range, self.size, **cache_options
             )
+            self._cache_type = self.cache.name
+            self._cache_options = dict(cache_options)
         else:
             self.buffer = io.BytesIO()
             self.offset = None
@@ -2417,7 +2419,14 @@ class AbstractBufferedFile(io.IOBase):
             self.size,
             self.autocommit,
             self.cache.name if self.cache else "none",
-            self.kwargs,
+            {
+                **self.kwargs,
+                "cache_options": (
+                    self._cache_options
+                    if self.cache and self.cache.name == self._cache_type
+                    else {}
+                ),
+            },
         )
 
     def __del__(self):
