@@ -1,8 +1,13 @@
+import json
 import pickle
 import shlex
 import subprocess
+import threading
 import time
 from datetime import datetime
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from types import SimpleNamespace
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
@@ -11,6 +16,112 @@ import fsspec
 requests = pytest.importorskip("requests")
 
 from fsspec.implementations.webhdfs import WebHDFS  # noqa: E402
+
+
+@pytest.fixture
+def webhdfs_read_server():
+    content = b"0123456789abcdefghijklmnopqrstuvwxyz"
+    state = SimpleNamespace(status=200, redirect=True, proxy=False, requests=[])
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            state.requests.append(self.path)
+            target = urlsplit(self.path)
+            query = parse_qs(target.query)
+            status, headers = 200, {}
+            if query.get("op") == ["GETFILESTATUS"]:
+                body = json.dumps(
+                    {"FileStatus": {"type": "FILE", "length": len(content)}}
+                ).encode()
+            elif target.path == "/webhdfs/v1/file" and state.redirect:
+                status, body = 307, b""
+                host = "datanode.invalid" if state.proxy else "127.0.0.1"
+                headers["Location"] = (
+                    f"http://{host}:{self.server.server_port}/data?{target.query}"
+                )
+            else:
+                status = state.status
+                start = int(query.get("offset", [0])[0])
+                length = int(query.get("length", [len(content)])[0])
+                body = content[start : start + length] if status == 200 else b"HTTP error"
+            self.send_response(status)
+            self.send_header("Content-Length", str(len(body)))
+            for name, value in headers.items():
+                self.send_header(name, value)
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    with HTTPServer(("127.0.0.1", 0), Handler) as httpd:
+        thread = threading.Thread(target=httpd.serve_forever)
+        thread.start()
+        try:
+            yield SimpleNamespace(port=httpd.server_port, state=state, content=content)
+        finally:
+            httpd.shutdown()
+            thread.join(timeout=5)
+            assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("status", [403, 404, 500, 503])
+def test_read_rejects_datanode_http_error(webhdfs_read_server, status):
+    server = webhdfs_read_server
+    server.state.status = status
+    fs = WebHDFS(
+        "127.0.0.1", port=server.port, user="testuser", skip_instance_cache=True
+    )
+    try:
+        with fs.open("/file", "rb", block_size=4) as stream:
+            with pytest.raises(requests.HTTPError) as error:
+                stream.read(5)
+            assert error.value.response.status_code == status
+            assert urlsplit(error.value.response.url).path == "/data"
+            assert stream.tell() == 0
+    finally:
+        fs.session.close()
+
+
+@pytest.mark.parametrize("redirect,proxy", [(False, False), (True, False), (True, True)])
+def test_read_success_with_and_without_redirect(webhdfs_read_server, redirect, proxy):
+    server = webhdfs_read_server
+    server.state.redirect, server.state.proxy = redirect, proxy
+    fs = WebHDFS(
+        "127.0.0.1",
+        port=server.port,
+        user="testuser",
+        skip_instance_cache=True,
+        data_proxy={"datanode.invalid": "127.0.0.1"} if proxy else None,
+    )
+    try:
+        with fs.open("/file", "rb", block_size=4) as stream:
+            assert stream.read(5) == server.content[:5]
+            stream.seek(7)
+            assert stream.read(8) == server.content[7:15]
+            before = len(server.state.requests)
+            stream.seek(len(server.content))
+            assert stream.read(5) == b""
+            assert len(server.state.requests) == before
+        assert any(path.startswith("/data?") for path in server.state.requests) == redirect
+    finally:
+        fs.session.close()
+
+
+def test_read_preserves_direct_http_error(webhdfs_read_server):
+    server = webhdfs_read_server
+    server.state.redirect, server.state.status = False, 503
+    fs = WebHDFS(
+        "127.0.0.1", port=server.port, user="testuser", skip_instance_cache=True
+    )
+    try:
+        with fs.open("/file", "rb", block_size=4) as stream:
+            with pytest.raises(requests.HTTPError) as error:
+                stream.read(5)
+            assert error.value.response.status_code == 503
+            assert urlsplit(error.value.response.url).path == "/webhdfs/v1/file"
+    finally:
+        fs.session.close()
 
 
 @pytest.fixture(scope="module")

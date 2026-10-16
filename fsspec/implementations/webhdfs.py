@@ -494,6 +494,7 @@ class WebHDFile(AbstractBufferedFile):
         if "Location" in out.headers:
             location = out.headers["Location"]
             out2 = self.fs.session.get(self.fs._apply_proxy(location))
+            out2.raise_for_status()
             return out2.content
         else:
             return out.content

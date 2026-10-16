@@ -12,6 +12,8 @@ Enhancements
 
 Fixes
 
+- Raise HTTP errors when WebHDFS reads are redirected to a failing data node.
+
 - Return the current position for accepted no-op seeks on HTTP streams (#2306)
 
 - Keep the HTTP link regex linear
