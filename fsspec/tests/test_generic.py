@@ -73,6 +73,20 @@ def test_rm_homogeneous_batches(m, tmp_path, local):
         assert not m.exists("a") and not m.exists("b")
 
 
+@pytest.mark.parametrize("as_list", [False, True])
+def test_rm_uncached_backend(m, as_list):
+    m.pipe_file("a", b"a")
+    m.pipe_file("b", b"b")
+    fs = fsspec.filesystem(
+        "generic",
+        default_method="options",
+        storage_options={"memory": {"skip_instance_cache": True}},
+    )
+    fs.rm(["memory://a", "memory://b"] if as_list else "memory://a")
+    assert not m.exists("a")
+    assert m.exists("b") == (not as_list)
+
+
 def test_cp_async_to_sync(server, m):
     fsspec.filesystem("http", headers={"give_length": "true", "head_ok": "true"})
     fs = fsspec.filesystem("generic", default_method="current")
