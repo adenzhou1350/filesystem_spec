@@ -15,8 +15,13 @@ Fixes
 - Commit ZIP writes through caching filesystems when ``ZipFileSystem.close()``
   is called, without waiting for garbage collection (#2311).
 
-- Preserve single-source copy semantics for PathLike sources in synchronous
-  ``copy``, ``get`` and ``put`` instead of flattening their directory trees.
+- Reject mixed source or destination backends in ``GenericFileSystem.copy``(#2302).
+
+- Return the current position for accepted no-op seeks on HTTP streams (#2306)
+
+- Keep the HTTP link regex linear
+
+- Preserve single-source copy semantics for Paths in sync batch ops
 
 - Reject unsupported HTTP ``pipe_file`` modes defensively before writing,
   since PUT behavior depends on the server (#2294).

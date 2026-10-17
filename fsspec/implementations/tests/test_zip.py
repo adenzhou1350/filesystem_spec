@@ -1,7 +1,6 @@
 import collections.abc
 import os.path
 import zipfile
-from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 from shutil import make_archive
@@ -98,15 +97,18 @@ def test_close_commits_cached_archive(m, tmp_path, backend, mode):
 def test_close_exits_archive_context_once():
     exits = []
 
-    @contextmanager
-    def archive_file():
-        with BytesIO() as file:
-            try:
-                yield file
-            finally:
-                exits.append(True)
+    class ArchiveContext:
+        def __init__(self):
+            self.file = BytesIO()
 
-    fs = ZipFileSystem(archive_file(), mode="w")
+        def __enter__(self):
+            return self.file
+
+        def __exit__(self, *args):
+            exits.append(True)
+            self.file.close()
+
+    fs = ZipFileSystem(ArchiveContext(), mode="w")
     fs.pipe_file("member", b"data")
     fs.close()
     fs.close()
