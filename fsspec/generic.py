@@ -345,7 +345,7 @@ class GenericFileSystem(AsyncFileSystem):
         ):
             if any(
                 _resolve_fs(path, self.method, storage_options=self.st_opts)
-                is not backend
+                != backend
                 for path in paths
             ):
                 raise ValueError(f"Multiple {side} backends are not supported")

@@ -148,6 +148,37 @@ def test_copy_homogeneous_batches(m, tmp_path, local):
         assert m.cat_file("b") == b"b"
 
 
+@pytest.mark.parametrize("as_list", [False, True])
+@pytest.mark.parametrize("uncached", ["source", "destination", "same"])
+def test_copy_uncached_backend(m, tmp_path, as_list, uncached):
+    m.pipe({"source-a": b"a", "source-b": b"b"})
+    sources = ["memory://source-a", "memory://source-b"]
+    destinations = (
+        ["memory://destination-a", "memory://destination-b"]
+        if uncached == "same"
+        else [(tmp_path / name).as_uri() for name in ("a", "b")]
+    )
+    fs = fsspec.filesystem(
+        "generic",
+        default_method="options",
+        storage_options={
+            "memory": {"skip_instance_cache": uncached != "destination"},
+            "file": {"skip_instance_cache": uncached == "destination"},
+        },
+    )
+    fs.copy(
+        sources if as_list else sources[0],
+        destinations if as_list else destinations[0],
+        on_error="raise",
+    )
+    expected = [b"a", b"b"] if as_list else [b"a"]
+    for index, data in enumerate(expected):
+        if uncached == "same":
+            assert m.cat_file(destinations[index]) == data
+        else:
+            assert (tmp_path / ("a", "b")[index]).read_bytes() == data
+
+
 @pytest.mark.parametrize("method", ["copy", "cp_file"])
 def test_copy_preserves_tempdir(method, m, tmp_path):
     tempdir = tmp_path / "staging"

@@ -12,6 +12,8 @@ Enhancements
 
 Fixes
 
+- Preserve equivalent uncached backends in ``GenericFileSystem.copy``.
+
 - Reject mixed source or destination backends in ``GenericFileSystem.copy``(#2302).
 
 - Return the current position for accepted no-op seeks on HTTP streams (#2306)
