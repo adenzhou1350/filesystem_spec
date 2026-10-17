@@ -29,6 +29,50 @@ def test_touch_rm(m):
     assert not m.exists("dir")
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_rm_mixed_backends_preserves_files(m, tmp_path, reverse):
+    local_file = tmp_path / "local-file"
+    local_file.write_bytes(b"local target")
+    local_url = local_file.as_uri()
+    m.pipe_file("memory-target", b"memory target")
+    # The other backend's URL is also a valid, unrelated memory entry.
+    m.pipe_file(local_url, b"memory shadow")
+    fsspec.filesystem("file")
+    fs = fsspec.filesystem("generic", default_method="current")
+    paths = ["memory://memory-target", local_url]
+    if reverse:
+        paths.reverse()
+
+    with pytest.raises(ValueError, match="Multiple backends"):
+        fs.rm(paths)
+
+    assert m.cat_file("memory-target") == b"memory target"
+    assert m.cat_file(local_url) == b"memory shadow"
+    assert local_file.read_bytes() == b"local target"
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_rm_homogeneous_batches(m, tmp_path, local):
+    if local:
+        fsspec.filesystem("file")
+        paths = [tmp_path / name for name in ("a", "b")]
+        for path in paths:
+            path.write_bytes(b"data")
+        urls = [path.as_uri() for path in paths]
+        # Aliases resolving to the same instance are not mixed backends.
+        urls[1] = urls[1].replace("file://", "local://", 1)
+    else:
+        m.pipe({"a": b"a", "b": b"b"})
+        urls = ["memory://a", "memory://b"]
+    fs = fsspec.filesystem("generic", default_method="current")
+    fs.rm(urls)
+
+    if local:
+        assert all(not path.exists() for path in paths)
+    else:
+        assert not m.exists("a") and not m.exists("b")
+
+
 def test_cp_async_to_sync(server, m):
     fsspec.filesystem("http", headers={"give_length": "true", "head_ok": "true"})
     fs = fsspec.filesystem("generic", default_method="current")
